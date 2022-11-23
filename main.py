@@ -3,7 +3,7 @@ import time
 from dotenv import load_dotenv
 from api_calls import get_all_programs, get_all_races, get_participants, get_results
 
-from db_calls import create_connection, create_table, insert_athlete_elo, insert_event_elo_rank, insert_race, insert_table, select_all_where, select_athlete_elo_order_elo, select_elo
+from db_calls import create_connection, create_table, insert_athlete_elo, insert_event_elo_rank, insert_race, insert_table, select_all_races, select_all_where, select_athlete_elo_order_elo, select_elo
 from models import AthleteELO, Race
 
 from multielo import MultiElo
@@ -156,9 +156,9 @@ def predict_event(eventid, programid):
         insert_event_elo_rank(conn, score[0], (i + 1), eventid, programid)
         i += 1
 
-def func(eventid, programid):
-    create_event_table(eventid,programid)
-    calculate_loss(eventid,programid)
+def func(eventid, programid, race_date):
+    create_event_table(eventid,programid, race_date)
+    calculate_loss(eventid,programid, race_date)
 
 
 def main():
@@ -166,9 +166,15 @@ def main():
     # predict_event(163568, 560516)
     # predict_event(164182, 550795)
     # predict_event(163959, 550779)
-    func(163482,547092)
+    # func(163482,547092, '2022-10-14')
     # pred = predict_event2(163482,547092 )
-
-    func(163478, 546952)
+    # calculate_loss(165005, 547737, '2022-05-01')
+    # func(163478, 546952, '2022-07-24')
+    conn = create_connection('storage.db')
+    races = select_all_races(conn, '2022-03-13')
+    for race in races:
+        print(race)
+        if(race[0] == 0): continue
+        func(race[0], race[1], race[2])
 
 main()

@@ -1,6 +1,7 @@
 import sqlite3
 from sqlite3 import Error
 from models import Race, AthleteELO
+from utils import isDateBefore
 
 
 def create_connection(db_file):
@@ -46,7 +47,7 @@ def insert_event_elo_rank(conn, id, elo_rank, eventid, programid):
 
 def insert_prediction(conn, id, position, eventid, programid):
     cursor = conn.cursor()
-    cursor.execute("UPDATE EVENTe{}p{} prediction = {} where id = {}".format(eventid, programid, position, id))
+    cursor.execute("UPDATE EVENTe{}p{} set prediction = {} WHERE id = {}".format(eventid, programid, position, id))
     conn.commit()
 
 #READS
@@ -63,11 +64,31 @@ def select_all_where(conn, table, gender, category):
     
     return cursor.fetchall()
 
-def select_elo(conn, id):
+def select_all_races(conn, before):
+    cursor = conn.cursor()
+    cursor.execute("SELECT EventID, ProgramID, date FROM RACES WHERE (program_name == 'Elite Men' OR program_name == 'Overall Male') AND specifications != '' AND categories LIKE \'%{}%\' AND date < '{}' AND date > '2019-01-01'".format('357',before))
+
+    return cursor.fetchall()
+
+def select_elo(conn, id, race_date):
     cursor = conn.cursor()
     cursor.execute("SELECT ELO FROM ELO WHERE (athlete_id =={})".format(id))
-
     return cursor.fetchone()
+
+def select_elo_race_date(conn, id, race_date):
+    cursor = conn.cursor()
+    cursor.execute("SELECT elo_sequence, races_sequence FROM ELO WHERE (athlete_id =={})".format(id))
+    res = cursor.fetchone()
+    date_sequence = str(res[1]).split(',')
+    elo_sequence = str(res[0]).split(',')
+    i = 0
+    for date in date_sequence:
+        if(isDateBefore(date, race_date)):
+            i += 1
+        else:
+            break
+
+    return elo_sequence[i]
 
 def select_elo_athlete(conn, id):
     cursor = conn.cursor()
@@ -91,6 +112,5 @@ def create_table(conn, name, props):
     propstring = ""
     for prop in props:
         propstring += ", " + str(prop[0]) + " " + str(prop[1])
-
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS {} (id integer PRIMARY KEY {})".format(name, propstring))

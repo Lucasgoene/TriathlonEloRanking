@@ -1,7 +1,7 @@
 import datetime
 import math
 import time
-from db_calls import create_connection, create_table, insert_event_elo_rank, insert_prediction, insert_table, select_athlete_elo_order_elo, select_elo, select_elo_athlete
+from db_calls import create_connection, create_table, insert_event_elo_rank, insert_prediction, insert_table, select_athlete_elo_order_elo, select_elo, select_elo_athlete, select_elo_race_date
 from api_calls import get_all_programs, get_all_races, get_participants, get_results
 
 from dotenv import load_dotenv
@@ -13,7 +13,7 @@ load_dotenv()
 
 api_key = os.getenv('API_KEY')
 
-def create_event_table(eventid, programid):
+def create_event_table(eventid, programid, race_date):
     conn = create_connection('storage.db')
     participants = get_participants(api_key, eventid, programid)
 
@@ -22,12 +22,14 @@ def create_event_table(eventid, programid):
     for participant in participants:
         id = participant['athlete_id']
         name = participant['athlete_title']
+        name = name.replace(r"'", r"")
         startnum = participant['start_num']
-        elo = select_elo(conn, id)
+        elo = select_elo_race_date(conn, id, race_date)
         if elo != None: 
             elo = elo[0]
         else:
             elo = 1000
+        if(id == 130354): print(elo)
         insert_table(conn, "EVENTe{}p{}".format(eventid, programid), "id, name, startnum, elo", "{},'{}','{}','{}'".format(id, name, startnum, elo))
 
 def predict_event2(eventid, programid):
@@ -41,17 +43,20 @@ def predict_event2(eventid, programid):
 
     return predictors
 
-def calculate_loss(eventid, programid):
+def calculate_loss(eventid, programid, race_date):
+    f = open("results.txt", "a")
+    f.write("w1, w2, d, loss, num_athletes, specification, category")
+    f.close()
     results = get_results(api_key, eventid, programid)
     result_by_id = {result['athlete_id'] : result['position'] for result in results}
 
     bestloss = 1000000000000000000
     bestloss_pair = ['0.0', '0.0']
     bestloss_days = 1
-    for days in range(0, 185, 1):
+    for days in range(0, 100, 1):
         predictors = {}
         predictors = elo_rank(predictors, eventid, programid)
-        predictors = elo_delta_since(predictors, '2022-10-15', days) #Form
+        predictors = elo_delta_since(predictors, race_date, days) #Form
         for w1 in range(0, 11, 1):
             w1 = 0.1 * w1
             for w2 in range(0, 1001, 1):
@@ -62,7 +67,8 @@ def calculate_loss(eventid, programid):
                 i = 1
                 loss = 0
                 for id in prediction_order.keys():
-                    if(result_by_id[id] == 'DNF' or result_by_id[id] == 'LAP' or result_by_id[id] == 'DSQ'):
+                    if id not in result_by_id.keys(): continue
+                    if(result_by_id[id] == 'DNF' or result_by_id[id] == 'LAP' or result_by_id[id] == 'DSQ' or result_by_id[id] == 'DNS'):
                         result = i
                     else:
                         result = int(result_by_id[id])
@@ -77,16 +83,19 @@ def calculate_loss(eventid, programid):
                 # print("w1:{} w2:{} - LOSS: {}".format(str(round(w1, 2)), str(round(w2, 2)), loss))
         
     
-    print("[BEST] w1:{} w2:{} d:{} - LOSS: {}".format(bestloss_pair[0], bestloss_pair[1], bestloss_days, bestloss))
-    predict(bestloss_pair[0], bestloss_pair[1], bestloss_days, eventid, programid)
+    print("[BEST] w1:{} w2:{} d:{} - LOSS: {} TYPE:".format(bestloss_pair[0], bestloss_pair[1], bestloss_days, bestloss))
+    f = open("results.txt", "a")
+    f.write("{},{},{},{},{}")
+    f.close()
+    #predict(bestloss_pair[0], bestloss_pair[1], bestloss_days, eventid, programid, race_date)
 
-def predict(w1, w2, days, eventid, programid):
+def predict(w1, w2, days, eventid, programid, race_date):
     conn = create_connection('storage.db')
     predictors = {}
     predictors = elo_rank(predictors, eventid, programid)
-    predictors = elo_delta_since(predictors, '2022-10-15', days) #Form
+    predictors = elo_delta_since(predictors, race_date, days) #Form
 
-    prediction_scores = {id : (w1 * predictors[id][0] - w2 * predictors[id][1]) for id in predictors.keys()}
+    prediction_scores = {id : (float(w1) * float(predictors[id][0]) - float(w2) * float(predictors[id][1])) for id in predictors.keys()}
     prediction_order = {k: v for k, v in sorted(prediction_scores.items(), key=lambda item: item[1])}
     
     i = 1
@@ -116,6 +125,7 @@ def elo_delta_since(predictors, race_date, days):
 
     for athlete_id in predictors.keys():
         athlete = select_elo_athlete(conn, athlete_id)
+        if (athlete == []): predictors[athlete_id].append(0); continue
         races = list(athlete.races)
         since_date = datetime.datetime.strptime(race_date, '%Y-%m-%d')
         since_date = (since_date - datetime.timedelta(days=days))
