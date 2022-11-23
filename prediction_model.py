@@ -78,7 +78,7 @@ def calculate_loss(eventid, programid):
         
     
     print("[BEST] w1:{} w2:{} d:{} - LOSS: {}".format(bestloss_pair[0], bestloss_pair[1], bestloss_days, bestloss))
-    predict(bestloss_pair[0], bestloss_pair[1], bestloss_days)
+    predict(bestloss_pair[0], bestloss_pair[1], bestloss_days, eventid, programid)
 
 def predict(w1, w2, days, eventid, programid):
     conn = create_connection('storage.db')
