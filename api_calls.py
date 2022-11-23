@@ -29,3 +29,9 @@ def get_results(key, eventid, programid):
     res = requests.get("https://api.triathlon.org/v1/events/{}/programs/{}/results".format(eventid, programid), headers=header)
 
     return res.json()['data']['results']
+
+def get_participants(key, eventid, programid):
+    header = { "apikey": key }
+    res = requests.get("https://api.triathlon.org/v1/events/{}/programs/{}/entries".format(eventid, programid), headers=header)
+
+    return res.json()['data']['entries']

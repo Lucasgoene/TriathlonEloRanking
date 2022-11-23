@@ -1,14 +1,15 @@
 import os
 import time
 from dotenv import load_dotenv
-import sqlite3
-from api_calls import get_all_programs, get_all_races, get_results
+from api_calls import get_all_programs, get_all_races, get_participants, get_results
 
-from db_calls import create_connection, get_elo_athlete, get_elo_ranking, insert_athlete_elo, insert_race, select_all_races, select_all_races_where
+from db_calls import create_connection, create_table, insert_athlete_elo, insert_event_elo_rank, insert_race, insert_table, select_all_where, select_athlete_elo_order_elo, select_elo
 from models import AthleteELO, Race
 
 from multielo import MultiElo
 import numpy as np
+
+from prediction_model import calculate_loss, create_event_table, predict_event2
 
 elo = MultiElo()
 
@@ -59,19 +60,22 @@ def store_races():
     conn.close()
 
 
-def main():
+def generate_elo_from(since_date):
     conn = create_connection('storage.db')
-    
     # Filter races
-    races = select_all_races_where(conn, 'Races', 'Men', 357)
+    races = select_all_where(conn, 'Races', 'Men', 357)
     
-    print(len(races))
     total = len(races)
     ELO_dict: dict[int, AthleteELO] = {}
 
     # Get resutlts
     races_processed = 0
     for race in races:
+        if(time.strptime(race[7], '%Y-%m-%d') < time.strptime(since_date, '%Y-%m-%d')):
+            races_processed += 1
+            continue
+            
+        print(race[7])
         results = get_results(api_key, race[1], race[2])
         provisional_elo_scores = {}
         elo_scores = {}
@@ -80,20 +84,16 @@ def main():
         # Get each athlete from results
         for athlete in results:
             id = athlete['athlete_id']
-            # athlete_elo: AthleteELO = None
             if id in ELO_dict.keys():
                 athlete_elo = ELO_dict[id]
             else:
-                res = get_elo_athlete(conn, id)
-                if(res == []):
-                    athlete_elo = AthleteELO(id, athlete['athlete_title'], 1000, 0, athlete['athlete_country_name'])
+                athlete_elo = get_elo_athlete(conn, id)
+                if(athlete_elo == []):
+                    athlete_elo = AthleteELO(id, athlete['athlete_title'], 1000, 0, athlete['athlete_country_name'], "", [], [])
                     insert_athlete_elo(conn, athlete_elo)   
                     ELO_dict[id] = athlete_elo
                 else:
-                    ELO_dict[id] = AthleteELO(id, res[0][0], res[0][1], res[0][2], res[0][3])
-                    athlete_elo = ELO_dict[id]
-
-            current_athletes[id] = athlete_elo
+                    ELO_dict[id] = athlete_elo
 
             if(ELO_dict[id].races_count >= 10):
                 provisional_elo_scores[id] = (ELO_dict[id].elo)
@@ -104,6 +104,8 @@ def main():
         # #ELO MATHS to new values
         elo = MultiElo()
 
+        elo_new = []
+        provisional_elo_new = []
         if(len(elo_scores.values()) > 1): elo_new = elo.get_new_ratings(list(elo_scores.values()))
         if(len(provisional_elo_scores.values()) > 1): provisional_elo_new = elo.get_new_ratings(list(provisional_elo_scores.values()))
 
@@ -120,15 +122,53 @@ def main():
             for id in provisional_elo_scores.keys():
                 if id not in elo_scores.keys():
                     ELO_dict[id] = ((ELO_dict[id]).update_elo(provisional_elo_new[i], race[7])).add_race()
-                
                 i += 1
 
 
         races_processed += 1
         print("Remaining {} of {} ".format(total - races_processed, total) )
 
-        if(races_processed % 10 == 0):
+        if(races_processed % 20 == 0):
             for athlete in list(ELO_dict.values()):
                 athlete.store_athlete(conn)
+
+def predict_event(eventid, programid):
+    conn = create_connection('storage.db')
+    participants = get_participants(api_key, eventid, programid)
+
+    create_table(conn, "EVENTe{}p{}".format(eventid, programid), [['name', 'text'], ['startnum', 'real'],['elo', 'real'],['prediction','real']])
+
+    for participant in participants:
+        id = participant['athlete_id']
+        name = participant['athlete_title']
+        startnum = participant['start_num']
+        elo = select_elo(conn, id)
+        if elo != None: 
+            elo = elo[0]
+        else:
+            elo = 1000
+        insert_table(conn, "EVENTe{}p{}".format(eventid, programid), "id, name, startnum, elo", "{},'{}','{}','{}'".format(id, name, startnum, elo))
+
+    scores = select_athlete_elo_order_elo(conn, eventid, programid)
+    
+    i = 0
+    for score in scores:
+        insert_event_elo_rank(conn, score[0], (i + 1), eventid, programid)
+        i += 1
+
+def func(eventid, programid):
+    create_event_table(eventid,programid)
+    calculate_loss(eventid,programid)
+
+
+def main():
+    #predict_event(163568, 560518)
+    # predict_event(163568, 560516)
+    # predict_event(164182, 550795)
+    # predict_event(163959, 550779)
+    func(163482,547092)
+    # pred = predict_event2(163482,547092 )
+
+    func(163478, 546952)
 
 main()
